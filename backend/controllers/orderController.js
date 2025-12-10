@@ -207,11 +207,16 @@ const verifyRazorpayPayment = async (req, res) => {
 const allOrder = async (req, res) => {
   try {
     const orders = await orderModel
-      .find({})
+      .find({
+        $or: [
+          { paymentMethod: "COD" },                  // ✅ ALL COD orders
+          { paymentMethod: "RAZORPAY", payment: true } // ✅ ONLY PAID Razorpay
+        ]
+      })
       .populate("userId", "name email phone address")
       .populate({
-        path: "items.productId",       // ✅ populate each item's product
-        select: "name image images",   // ✅ fetch product name & images
+        path: "items.productId",
+        select: "name image images",
       })
       .sort({ date: -1 });
 
@@ -223,10 +228,11 @@ const allOrder = async (req, res) => {
     console.error("ALL ORDER ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch all orders",
+      message: "Failed to fetch filtered orders",
     });
   }
 };
+
 
 
 
