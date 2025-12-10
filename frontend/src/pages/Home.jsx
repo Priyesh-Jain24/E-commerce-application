@@ -3,12 +3,15 @@ import { ShopContext } from "../context/ShopContext.jsx";
 import { Link } from "react-router-dom";
 
 const Home = () => {
-  // get featured products from context, default to [] to avoid errors
-  const { featured = [] } = useContext(ShopContext);
-  console.log("Featured products:", featured);
+  // get data from context
+  const {
+    bestSellers = [],
+    loadingProducts,
+    productsError,
+  } = useContext(ShopContext);
 
-  // you can limit how many to show on homepage if you want
-  const bestSellers = featured.slice(0, 8);
+  // limit how many to show on homepage if you want
+  const bestSellersToShow = bestSellers.slice(0, 8);
 
   return (
     <div className="w-full bg-pink-100 overflow-x-hidden">
@@ -41,22 +44,38 @@ const Home = () => {
       {/* Best Seller Section */}
       <div className="w-full py-8 sm:py-12 md:py-16 px-4 sm:px-6 md:px-8">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl sm:text-4xl font-serif text-gray-800 mb-6 sm:mb-8 md:mb-12 px-2">
-            Best Seller
+          <h2 className="text-3xl sm:text-4xl font-serif text-gray-800 mb-4 sm:mb-6 md:mb-8 px-2">
+            Best Sellers
           </h2>
 
-          {bestSellers.length === 0 ? (
-            <p className="text-gray-600 px-2">
-              No featured products yet. Please check back later.
+          {loadingProducts && (
+            <p className="text-gray-600 px-2 mb-4">Loading products…</p>
+          )}
+
+          {productsError && (
+            <p className="text-red-600 px-2 mb-4">
+              {productsError}
             </p>
-          ) : (
+          )}
+
+          {!loadingProducts && !productsError && bestSellersToShow.length === 0 && (
+            <p className="text-gray-600 px-2">
+              No best-seller products yet. Please check back later.
+            </p>
+          )}
+
+          {!loadingProducts && !productsError && bestSellersToShow.length > 0 && (
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
-              {bestSellers.map((product) => {
+              {bestSellersToShow.map((product) => {
                 const key = product._id || product.id;
                 const linkId = product._id || product.id;
-                const img = Array.isArray(product.image)
-                  ? product.image[0]
-                  : product.image;
+
+                // choose first image from backend structure
+                let img =
+                  (Array.isArray(product.images) && product.images[0]) ||
+                  (Array.isArray(product.image) && product.image[0]) ||
+                  product.image ||
+                  "";
 
                 return (
                   <Link
@@ -66,11 +85,17 @@ const Home = () => {
                   >
                     <div className="bg-pink-200 rounded-lg sm:rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                       <div className="aspect-square overflow-hidden">
-                        <img
-                          src={img}
-                          alt={product.name}
-                          className="w-full h-full object-cover hover:scale-105 rounded-lg sm:rounded-xl transition-transform duration-300"
-                        />
+                        {img ? (
+                          <img
+                            src={img}
+                            alt={product.name}
+                            className="w-full h-full object-cover hover:scale-105 rounded-lg sm:rounded-xl transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-2xl sm:text-3xl text-amber-900 bg-pink-100">
+                            {product.name?.[0] || "P"}
+                          </div>
+                        )}
                       </div>
                       <div className="p-2 sm:p-3 md:p-4">
                         <h3 className="font-medium text-gray-800 mb-1 sm:mb-2 text-xs sm:text-sm md:text-base line-clamp-2">

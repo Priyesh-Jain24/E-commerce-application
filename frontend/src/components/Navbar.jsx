@@ -1,3 +1,4 @@
+// src/components/Navbar.jsx
 import React, {
   useState,
   useEffect,
@@ -14,6 +15,7 @@ import {
   ChevronRight,
   Instagram,
 } from "lucide-react";
+import axios from "axios";
 import { useNavigate, Link } from "react-router-dom";
 import { ShopContext } from "../context/ShopContext.jsx";
 
@@ -27,11 +29,20 @@ const Navbar = () => {
 
   const userMenuRef = useRef(null);
 
-  // TEMP (replace with real auth later)
-  const isLoggedIn = true; // true = logged in, false = not logged in
-
   const navigate = useNavigate();
-  const { cartCount } = useContext(ShopContext); // number of items in cart
+
+  // ⬇️ get auth, cartCount and backendURL from context
+  const {
+    cartCount = 0,
+    token,
+    setToken,
+    backendURL,
+    setCartItems,
+    // optionally, if you sync cart items into context:
+    // setCartItems,
+  } = useContext(ShopContext);
+
+  const isLoggedIn = Boolean(token);
 
   const promos = [
     "Free shipping all over india",
@@ -58,6 +69,7 @@ const Navbar = () => {
   useEffect(() => {
     const interval = setInterval(nextPromo, 4000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // click outside user menu to close
@@ -93,6 +105,51 @@ const Navbar = () => {
       handleSearch();
     }
   };
+
+  const handleLogout = () => {
+    // clear token from context
+    setToken("");
+
+    // clear from localStorage
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("userInfo");
+
+    console.log("USER LOGGED OUT");
+    // close menu
+    setShowUserMenu(false);
+
+    // redirect
+    navigate("/login");
+  };
+
+  // 🔹 When clicking the cart icon:
+  //  - if not logged in, go to /login
+  //  - if logged in, call GET /api/cart/get with token
+  //    then navigate to /cart
+// inside Navbar component
+const handleCartClick = async () => {
+  if (!token) {
+    navigate("/login");
+    return;
+  }
+
+  try {
+    const res = await axios.get(`${backendURL}/api/cart/get`, {
+      headers: {
+        token, // 👈 this matches authUser
+      },
+    });
+
+    console.log("GET CART RESPONSE:", res.data);
+
+    navigate("/cart");
+  } catch (err) {
+    console.error("GET CART ERROR:", err);
+    navigate("/cart"); // optional
+  }
+};
+
 
   const linkClass = `relative no-underline text-gray-700 hover:text-gray-900
    after:absolute after:left-0 after:-bottom-1 after:h-[2px]
@@ -253,11 +310,7 @@ const Navbar = () => {
                       Profile
                     </Link>
                     <button
-                      onClick={() => {
-                        console.log("Logout clicked");
-                        // TODO: add real logout logic
-                        setShowUserMenu(false);
-                      }}
+                      onClick={handleLogout}
                       className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                     >
                       Logout
@@ -277,14 +330,18 @@ const Navbar = () => {
           </div>
 
           {/* Cart icon with badge */}
-          <Link to="/cart" className="relative">
+          <button
+            type="button"
+            onClick={handleCartClick}
+            className="relative"
+          >
             <ShoppingCart className="w-5 text-gray-700 hover:text-gray-900" />
             {cartCount > 0 && (
               <span className="absolute -top-2 -right-2 bg-pink-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
                 {cartCount}
               </span>
             )}
-          </Link>
+          </button>
 
           {/* Mobile Menu Button */}
           <Menu

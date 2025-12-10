@@ -1,19 +1,89 @@
 // src/pages/Cart.jsx
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { Trash2, ShoppingBag } from "lucide-react";
+import axios from "axios";
 import { ShopContext } from "../context/ShopContext.jsx";
 import { Link } from "react-router-dom";
 
 const Cart = () => {
   const {
     cartItems,
-    updateCartQuantity,
-    removeFromCart,
+    setCartItems,   // from context (array used for UI)
+    addToCart,      // calls POST /api/cart/add (from context)
+    removeFromCart, // calls DELETE /api/cart/remove (from context)
+    products,       // all products (to attach name, price, image)
+    token,
+    backendURL,
     currency,
     delivery_fee,
   } = useContext(ShopContext);
 
   const [promoCode, setPromoCode] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // 🔹 On mount / when token or products change: fetch cart from backend
+  useEffect(() => {
+    const fetchCart = async () => {
+      if (!token) {
+        setCartItems([]);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const res = await axios.get(`${backendURL}/api/cart/get`, {
+          headers: { token },
+        });
+
+        console.log("GET CART RESPONSE (Cart.jsx):", res.data);
+
+        if (!res.data.success || !res.data.cart) {
+          setCartItems([]);
+          setLoading(false);
+          return;
+        }
+
+        const cartData = res.data.cart; // { itemId: { size: qty } }
+        const uiItems = [];
+
+        Object.entries(cartData).forEach(([itemId, sizesObj]) => {
+          Object.entries(sizesObj || {}).forEach(([size, quantity]) => {
+            if (!quantity) return;
+
+            // find product details
+            const product =
+              products?.find(
+                (p) =>
+                  p._id === itemId || p.id?.toString() === itemId.toString()
+              ) || {};
+
+            uiItems.push({
+              id: product._id || product.id || itemId,
+              name: product.name || "Product",
+              price: product.price || 0,
+              image:
+                product.images?.[0] ||
+                product.image?.[0] ||
+                product.image ||
+                "",
+              size,
+              quantity,
+              key: `${itemId}-${size}`,
+            });
+          });
+        });
+
+        setCartItems(uiItems);
+      } catch (err) {
+        console.error("GET CART ERROR (Cart.jsx):", err);
+        setCartItems([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCart();
+  }, [token, backendURL, products, setCartItems]);
 
   // derived totals
   const subtotal = cartItems.reduce(
@@ -23,10 +93,16 @@ const Cart = () => {
   const shipping = subtotal > 999 ? 0 : subtotal === 0 ? 0 : delivery_fee || 50;
   const discount = promoCode === "SPECIAL10" ? subtotal * 0.1 : 0;
   const total = subtotal + shipping - discount;
-  const itemsCount = cartItems.reduce(
-    (sum, item) => sum + item.quantity,
-    0
-  );
+  const itemsCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  // 🔄 Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-pink-50 flex items-center justify-center px-4">
+        <p className="text-gray-700 text-lg">Loading your cart...</p>
+      </div>
+    );
+  }
 
   // 🧺 Empty cart state
   if (cartItems.length === 0) {
@@ -109,29 +185,21 @@ const Cart = () => {
 
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-3">
+                          {/* Decrease quantity by 1 */}
                           <button
-                            onClick={() =>
-                              updateCartQuantity(
-                                item.id,
-                                item.size,
-                                item.quantity - 1
-                              )
-                            }
+                            onClick={() => removeFromCart(item.id, item.size)}
                             className="w-8 h-8 rounded-full border-2 border-gray-300 hover:border-gray-700 transition-colors text-sm"
                           >
                             −
                           </button>
+
                           <span className="font-medium">
                             {item.quantity}
                           </span>
+
+                          {/* Increase quantity by 1 */}
                           <button
-                            onClick={() =>
-                              updateCartQuantity(
-                                item.id,
-                                item.size,
-                                item.quantity + 1
-                              )
-                            }
+                            onClick={() => addToCart(item.id, item.size)}
                             className="w-8 h-8 rounded-full border-2 border-gray-300 hover:border-gray-700 transition-colors text-sm"
                           >
                             +

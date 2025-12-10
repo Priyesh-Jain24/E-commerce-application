@@ -1,5 +1,7 @@
+// src/pages/PlaceOrder.jsx
 import React, { useState, useContext } from "react";
 import { MapPin, CreditCard, Truck, CheckCircle } from "lucide-react";
+import axios from "axios";
 import { ShopContext } from "../context/ShopContext.jsx";
 import razorpayLogo from "../assets/razorpay.webp";
 import stripeLogo from "../assets/stripelogo.png";
@@ -8,9 +10,6 @@ import { useNavigate } from "react-router-dom";
 const PlaceOrder = () => {
   const [step, setStep] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("card");
-
-  const navigate = useNavigate();
-
   const [shippingInfo, setShippingInfo] = useState({
     fullName: "",
     phone: "",
@@ -20,15 +19,27 @@ const PlaceOrder = () => {
     pincode: "",
   });
 
-  // ✅ Get items, currency and order helpers from context
-  const { cartItems, currency, addOrder, clearCart } = useContext(ShopContext);
+  const navigate = useNavigate();
 
-  // totals based on real cart items
+  // ✅ from context
+  const {
+    cartItems,
+    currency,
+    addOrder,
+    clearCart,
+    backendURL,
+    token,
+  } = useContext(ShopContext);
+
+  // 🔹 Razorpay key from env
+  const razorpayKeyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
+
+  // totals from cart
   const subtotal = cartItems.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0
   );
-  const shipping = 0; // keep free shipping for now
+  const shipping = 0;
   const tax = Math.round(subtotal * 0.18);
   const total = subtotal + shipping + tax;
 
@@ -37,35 +48,203 @@ const PlaceOrder = () => {
     setStep(2);
   };
 
-  const handlePlaceOrder = () => {
+  // 🔹 helper to build the items array
+  const buildItemsPayload = () =>
+    cartItems.map((item) => ({
+      productId: item.id,
+      name: item.name,
+      size: item.size,
+      quantity: item.quantity,
+      price: item.price,
+      images: Array.isArray(item.images)
+        ? item.images
+        : item.image
+        ? [item.image]
+        : [],
+    }));
+
+  const handlePlaceOrder = async () => {
     if (cartItems.length === 0) {
       alert("Your cart is empty. Please add items before placing an order.");
       navigate("/collection");
       return;
     }
 
-    // build order object
-    const newOrder = {
-      id: "ORD-" + Date.now(), // simple unique id
-      date: new Date().toISOString(),
-      status: "processing",
-      total,
-      items: cartItems.map((item) => ({
-        id: item.id,
-        name: item.name,
-        quantity: item.quantity,
-        price: item.price,
-        image: item.image,
-      })),
-      trackingNumber: null,
-      shippingInfo,
-      paymentMethod,
-      currency,
-    };
+    if (!token) {
+      alert("Please login to place an order.");
+      navigate("/login");
+      return;
+    }
 
-    addOrder(newOrder);   // ✅ save order into context
-    clearCart();          // ✅ empty the cart
-    navigate("/orders");  // ✅ go to My Orders page
+    const itemsPayload = buildItemsPayload();
+
+    // ✅ 1) COD FLOW
+    if (paymentMethod === "cod") {
+      try {
+        const payload = {
+          items: itemsPayload,
+          amount: total,
+          address: shippingInfo,
+          paymentMethod: "COD",
+        };
+
+        const res = await axios.post(
+          `${backendURL}/api/order/place`,
+          payload,
+          {
+            headers: { token },
+          }
+        );
+
+        console.log("✅ PLACE ORDER (COD) RESPONSE:", res.data);
+
+        if (!res.data.success) {
+          alert(res.data.message || "Order failed. Please try again.");
+          return;
+        }
+
+        const savedOrder = res.data.order;
+
+        addOrder({
+          id: savedOrder?._id || "ORD-" + Date.now(),
+          date: savedOrder?.date || new Date().toISOString(),
+          status: savedOrder?.status || "processing",
+          total: savedOrder?.amount || total,
+          items: itemsPayload,
+          trackingNumber: savedOrder?.trackingNumber || null,
+          shippingInfo,
+          paymentMethod: "COD",
+          currency,
+        });
+
+        clearCart();
+        alert("Order placed successfully!");
+        navigate("/orders");
+      } catch (err) {
+        console.error("❌ PLACE ORDER ERROR (frontend COD):", err);
+        const msg =
+          err?.response?.data?.message ||
+          "Failed to place order. Please try again.";
+        alert(msg);
+      }
+
+      return;
+    }
+
+    // ✅ 2) RAZORPAY FLOW
+    if (paymentMethod === "card") {
+      if (!window.Razorpay) {
+        alert("Razorpay SDK not loaded. Make sure the script is in index.html.");
+        return;
+      }
+
+      if (!razorpayKeyId) {
+        alert("Razorpay key missing. Set VITE_RAZORPAY_KEY_ID in .env.");
+        return;
+      }
+
+      try {
+        // call backend to create DB order + Razorpay order
+        const payload = {
+          items: itemsPayload,
+          amount: total,
+          address: shippingInfo,
+          currency: "INR", // backend can use this
+        };
+
+        const res = await axios.post(
+          `${backendURL}/api/order/razorpay`,
+          payload,
+          {
+            headers: { token },
+          }
+        );
+
+        console.log("✅ RAZORPAY ORDER CREATE RESPONSE:", res.data);
+
+        if (!res.data.success || !res.data.order) {
+          alert(res.data.message || "Failed to start payment.");
+          return;
+        }
+
+        const razorOrder = res.data.order; // order from razorpayInstance.orders.create
+
+        const options = {
+          key: razorpayKeyId,
+          amount: razorOrder.amount, // in paise
+          currency: razorOrder.currency || "INR",
+          name: "Your Store",
+          description: "Order Payment",
+          order_id: razorOrder.id,
+          prefill: {
+            name: shippingInfo.fullName,
+            contact: shippingInfo.phone,
+            // email: userEmailIfYouHave
+          },
+          notes: {
+            address: `${shippingInfo.address}, ${shippingInfo.city}, ${shippingInfo.state} - ${shippingInfo.pincode}`,
+          },
+          theme: {
+            color: "#111827",
+          },
+          // 🔹 SUCCESS HANDLER → call /verify, then clearCart if success
+          handler: async function (response) {
+            console.log("RAZORPAY SUCCESS RESPONSE:", response);
+
+            try {
+              const verifyRes = await axios.post(
+                `${backendURL}/api/order/verify`,
+                {
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                },
+                {
+                  headers: { token },
+                }
+              );
+
+              console.log("RAZORPAY VERIFY RESPONSE:", verifyRes.data);
+
+              if (verifyRes.data.success) {
+                clearCart(); // ✅ ONLY after backend says OK
+                alert("Payment successful! Order placed.");
+                navigate("/orders");
+              } else {
+                alert(
+                  verifyRes.data.message || "Payment verification failed."
+                );
+              }
+            } catch (err) {
+              console.error("VERIFY ERROR:", err);
+              alert("Payment verification failed. Please contact support.");
+            }
+          },
+          modal: {
+            ondismiss: function () {
+              console.log("Razorpay popup closed.");
+            },
+          },
+        };
+
+        const rzp = new window.Razorpay(options);
+
+        rzp.on("payment.failed", function (resp) {
+          console.error("RAZORPAY PAYMENT FAILED:", resp);
+          alert("Payment failed. Please try again.");
+        });
+
+        rzp.open();
+      } catch (err) {
+        console.error("❌ RAZORPAY FLOW ERROR (frontend):", err);
+        const msg =
+          err?.response?.data?.message ||
+          "Failed to start Razorpay payment. Please try again.";
+        alert(msg);
+      }
+
+      return;
+    }
   };
 
   return (
@@ -303,24 +482,6 @@ const PlaceOrder = () => {
                         <img
                           src={razorpayLogo}
                           alt="Razorpay"
-                          className="h-6 mb-2"
-                        />
-                      </div>
-                    </label>
-
-                    <label className="flex items-center p-4 border-2 rounded-lg cursor-pointer hover:border-gray-700 transition-colors">
-                      <input
-                        type="radio"
-                        name="payment"
-                        value="upi"
-                        checked={paymentMethod === "upi"}
-                        onChange={(e) => setPaymentMethod(e.target.value)}
-                        className="mr-3"
-                      />
-                      <div className="flex-1">
-                        <img
-                          src={stripeLogo}
-                          alt="Stripe"
                           className="h-6 mb-2"
                         />
                       </div>

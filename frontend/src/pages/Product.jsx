@@ -1,26 +1,25 @@
+// src/pages/Product.jsx
 import React, { useState, useContext } from "react";
 import { Heart, ShoppingCart, Truck, RefreshCw, Shield } from "lucide-react";
 import { ShopContext } from "../context/ShopContext.jsx";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import axios from "axios";
 
 const Product = () => {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [selectedSize, setSelectedSize] = useState("M");
-  const [cartItems, setCartItems] = useState([]);
 
   const { id } = useParams();
-  const { products } = useContext(ShopContext);
-  
+  const navigate = useNavigate();
 
-  const { addToCart } = useContext(ShopContext);
-  const handleAddToCart = () => {
-    addToCart(product, quantity, selectedSize); // or just product, 1
-};
-
+  // ✅ get products + backendUrl + token from context
+  const { products, backendURL, token } = useContext(ShopContext);
 
   // find the single product
-  const product = products?.find((p) => p._id === id || p.id?.toString() === id);
+  const product = products?.find(
+    (p) => p._id === id || p.id?.toString() === id
+  );
 
   const sizes = ["S", "M", "L", "XL"];
 
@@ -34,20 +33,78 @@ const Product = () => {
   }
 
   // images & other optional fields
-  const images = product.images || product.image || [];
+  const images = Array.isArray(product.images)
+    ? product.images
+    : Array.isArray(product.image)
+    ? product.image
+    : [product.image];
   const features = product.features || [];
   const rating = product.rating || 4.5;
   const reviews = product.reviews || 12;
   const originalPrice = product.originalPrice || product.price;
 
   // Get related products from the same category
-  const relatedProducts = products
-    ?.filter((p) => 
-      p._id !== product._id && 
-      p.id?.toString() !== id &&
-      p.category === product.category
-    )
-    .slice(0, 4) || [];
+  const relatedProducts =
+    products
+      ?.filter(
+        (p) =>
+          p._id !== product._id &&
+          p.id?.toString() !== id &&
+          p.category === product.category
+      )
+      .slice(0, 4) || [];
+
+  // ✅ API-based Add to Cart (direct axios call)
+  const handleAddToCart = async () => {
+  try {
+    console.log("Product backendURL =", backendURL);
+    const productId = product._id || product.id;
+
+    if (!productId) {
+      console.error("No product id found");
+      return;
+    }
+
+    if (!selectedSize) {
+      alert("Please select a size.");
+      return;
+    }
+
+    if (!token) {
+      alert("Please login to add items to your cart.");
+      navigate("/login");
+      return;
+    }
+
+    console.log("Adding to cart:", { productId, selectedSize, quantity });
+
+    for (let i = 0; i < quantity; i++) {
+      const res = await axios.post(
+        `${backendURL}/api/cart/add`,
+        {
+          itemId: productId,
+          size: selectedSize,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            token,
+          },
+        }
+      );
+      console.log("ADD TO CART RESPONSE:", res.data);
+    }
+
+    alert("Added to cart!");
+  } catch (err) {
+    console.error("Error adding to cart:", err);
+    const msg =
+      err?.response?.data?.message ||
+      "Unable to add to cart. Please try again.";
+    alert(msg);
+  }
+};
+
 
   return (
     <div className="min-h-screen bg-pink-50">
@@ -84,7 +141,9 @@ const Product = () => {
                   key={idx}
                   onClick={() => setSelectedImage(idx)}
                   className={`bg-white rounded-lg overflow-hidden cursor-pointer border-2 ${
-                    selectedImage === idx ? "border-gray-700" : "border-transparent"
+                    selectedImage === idx
+                      ? "border-gray-700"
+                      : "border-transparent"
                   }`}
                 >
                   <img
@@ -123,7 +182,10 @@ const Product = () => {
                     ₹{originalPrice}
                   </span>
                   <span className="bg-pink-200 text-pink-800 px-2 py-1 rounded text-sm font-medium">
-                    {Math.round((1 - product.price / originalPrice) * 100)}% OFF
+                    {Math.round(
+                      (1 - product.price / originalPrice) * 100
+                    )}
+                    % OFF
                   </span>
                 </>
               )}
@@ -179,7 +241,10 @@ const Product = () => {
 
             {/* Action Buttons */}
             <div className="flex gap-4 mb-8">
-              <button onClick={handleAddToCart} className="flex-1 bg-gray-700 text-white py-3 rounded-full font-medium hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
+              <button
+                onClick={handleAddToCart}
+                className="flex-1 bg-gray-700 text-white py-3 rounded-full font-medium hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+              >
                 <ShoppingCart className="w-5 h-5" />
                 Add to Cart
               </button>

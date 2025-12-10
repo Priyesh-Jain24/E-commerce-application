@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from "react";
+import React, { useState, useContext, useEffect, useMemo } from "react";
 import { SlidersHorizontal, X, Search } from "lucide-react";
 import { ShopContext } from "../context/ShopContext.jsx";
 import { Link, useSearchParams } from "react-router-dom";
@@ -11,10 +11,10 @@ const Collection = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
 
-  const { products } = useContext(ShopContext);
+  const { products, loadingProducts, productsError } = useContext(ShopContext);
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Get search query from URL on mount and when URL changes
+  // ---------- SEARCH FROM URL ----------
   useEffect(() => {
     const search = searchParams.get("search");
     if (search) {
@@ -26,19 +26,32 @@ const Collection = () => {
     }
   }, [searchParams]);
 
-  const categories = [
-    { id: "all", name: "All Products" },
-    { id: "accessories", name: "Accessories" },
-    { id: "bags", name: "Bags" },
-    { id: "home", name: "Home Decor" },
-    { id: "stationery", name: "Stationery" },
-  ];
+  // ---------- DYNAMIC CATEGORIES FROM BACKEND ----------
+  const categories = useMemo(() => {
+    const set = new Set();
+    products.forEach((p) => {
+      if (p.category) set.add(p.category);
+    });
 
-  // Handle search from the search bar
-  const handleSearch = () => {
-    if (searchInput.trim()) {
-      setSearchQuery(searchInput.trim());
-      setSearchParams({ search: searchInput.trim() });
+    const arr = Array.from(set).map((cat) => ({
+      id: cat.toLowerCase(),
+      name: cat
+        .toString()
+        .replace(/[-_]/g, " ")
+        .replace(/\b\w/g, (c) => c.toUpperCase()),
+    }));
+
+    return [{ id: "all", name: "All Products" }, ...arr];
+  }, [products]);
+
+  // ---------- SEARCH HANDLERS ----------
+  const handleSearch = (term) => {
+    const value = typeof term === "string" ? term : searchInput;
+
+    if (value.trim()) {
+      setSearchQuery(value.trim());
+      setSearchInput(value.trim());
+      setSearchParams({ search: value.trim() });
     } else {
       clearSearch();
     }
@@ -59,7 +72,7 @@ const Collection = () => {
   // ---------- FILTER + SORT LOGIC ----------
   const filteredProducts = products
     .filter((product) => {
-      // Search filter
+      // search filter
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const name = (product.name || "").toLowerCase();
@@ -77,15 +90,10 @@ const Collection = () => {
       return true;
     })
     .filter((product) => {
-      // category filter
+      // category filter (using backend category)
       if (selectedCategory === "all") return true;
 
       const cat = (product.category || "").toLowerCase();
-      const subCat = (product.subCategory || "").toLowerCase();
-
-      if (selectedCategory === "bags") {
-        return subCat === "bags";
-      }
       return cat === selectedCategory;
     })
     .filter((product) => {
@@ -99,12 +107,17 @@ const Collection = () => {
     });
 
   const sortedProducts = [...filteredProducts].sort((a, b) => {
-    if (sortBy === "price-low") return a.price - b.price;
-    if (sortBy === "price-high") return b.price - a.price;
+    const priceA = Number(a.price) || 0;
+    const priceB = Number(b.price) || 0;
+
+    if (sortBy === "price-low") return priceA - priceB;
+    if (sortBy === "price-high") return priceB - priceA;
     if (sortBy === "newest") {
-      return (b.date || 0) - (a.date || 0);
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
     }
-    // featured (default) – no change
+    // "featured" – keep original order
     return 0;
   });
 
@@ -123,12 +136,9 @@ const Collection = () => {
           {/* Search Bar */}
           <div className="mt-6 max-w-3xl w-full mx-auto">
             <div className="relative group">
-              {/* Glow border on focus */}
               <div className="absolute inset-0 rounded-full bg-gradient-to-r from-pink-200 via-rose-200 to-amber-200 opacity-0 group-focus-within:opacity-100 blur-sm transition-opacity duration-300 pointer-events-none" />
 
-              {/* Input container */}
               <div className="relative flex items-center bg-white/80 backdrop-blur-sm rounded-full border-2 border-gray-200 group-focus-within:border-gray-700 shadow-sm group-focus-within:shadow-md transition-all duration-300">
-                {/* Left icon */}
                 <span className="pl-3 sm:pl-4 pr-2 flex items-center">
                   <Search className="w-4 h-4 sm:w-5 sm:h-5 text-gray-400 group-focus-within:text-gray-700 transition-colors" />
                 </span>
@@ -142,7 +152,6 @@ const Collection = () => {
                   className="w-full bg-transparent px-1 sm:px-2 py-2.5 sm:py-3 pr-28 rounded-full text-sm sm:text-base text-gray-800 placeholder:text-gray-400 focus:outline-none"
                 />
 
-                {/* Right buttons */}
                 <div className="absolute right-2 flex items-center gap-1 sm:gap-2">
                   {searchInput && (
                     <button
@@ -154,7 +163,7 @@ const Collection = () => {
                     </button>
                   )}
                   <button
-                    onClick={handleSearch}
+                    onClick={() => handleSearch()}
                     className="px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-gray-800 hover:bg-gray-900 rounded-full transition-colors flex items-center gap-1.5"
                   >
                     <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white" />
@@ -171,21 +180,16 @@ const Collection = () => {
               <span className="text-[11px] sm:text-xs text-gray-400 mr-1">
                 Popular:
               </span>
-              {["Bags", "Mug", "Keychain", "Art"].map(
-                (tag) => (
-                  <button
-                    key={tag}
-                    type="button"
-                    onClick={() => {
-                      setSearchInput(tag);
-                      handleSearch();
-                    }}
-                    className="px-2.5 py-1 rounded-full bg-white/80 hover:bg-pink-50 border border-pink-100 text-gray-600 hover:text-gray-800 transition-colors"
-                  >
-                    {tag}
-                  </button>
-                )
-              )}
+              {["Bags", "Mug", "Keychain", "Art"].map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => handleSearch(tag)}
+                  className="px-2.5 py-1 rounded-full bg-white/80 hover:bg-pink-50 border border-pink-100 text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  {tag}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -295,6 +299,16 @@ const Collection = () => {
 
           {/* Main Content */}
           <div className="flex-1">
+            {/* Loading & Error */}
+            {loadingProducts && (
+              <p className="mb-4 text-sm text-gray-600">Loading products…</p>
+            )}
+            {productsError && (
+              <p className="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 px-4 py-2 rounded-lg">
+                {productsError}
+              </p>
+            )}
+
             {/* Sort & Filter Bar */}
             <div className="flex justify-between items-center mb-6">
               <p className="text-gray-600">{sortedProducts.length} products</p>
@@ -322,10 +336,11 @@ const Collection = () => {
             </div>
 
             {/* No results message */}
-            {sortedProducts.length === 0 && (
+            {sortedProducts.length === 0 && !loadingProducts && !productsError && (
               <div className="text-center py-12">
                 <p className="text-gray-600 text-lg">
-                  No products found {searchQuery && `matching "${searchQuery}"`}
+                  No products found{" "}
+                  {searchQuery && `matching "${searchQuery}"`}
                 </p>
                 {searchQuery && (
                   <button
@@ -341,27 +356,34 @@ const Collection = () => {
             {/* Products Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {sortedProducts.map((product) => {
-                const img =
-                  Array.isArray(product.image) && product.image.length > 0
-                    ? product.image[0]
-                    : product.image;
+                let img =
+                  (Array.isArray(product.images) && product.images[0]) ||
+                  (Array.isArray(product.image) && product.image[0]) ||
+                  product.image ||
+                  "";
 
                 return (
                   <Link
-                    key={product._id}
-                    to={`/product/${product._id}`}
+                    key={product._id || product.id}
+                    to={`/product/${product._id || product.id}`}
                     className="no-underline"
                   >
                     <div className="bg-pink-100 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                       <div className="aspect-square overflow-hidden">
-                        <img
-                          src={img}
-                          alt={product.name}
-                          className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                        />
+                        {img ? (
+                          <img
+                            src={img}
+                            alt={product.name}
+                            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-2xl text-amber-900 bg-pink-50">
+                            {product.name?.[0] || "P"}
+                          </div>
+                        )}
                       </div>
                       <div className="p-4">
-                        <h3 className="font-medium text-gray-800 mb-2">
+                        <h3 className="font-medium text-gray-800 mb-2 line-clamp-2">
                           {product.name}
                         </h3>
                         <p className="text-gray-700 font-medium">
