@@ -19,8 +19,8 @@ connectCloudinary();
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
-  "https://frontend.vercel.app",
-  "https://admin.vercel.app"
+  "https://e-commerce-application-neon-delta.vercel.app",
+  "https://e-commerce-application-g89y.vercel.app"
 ];
 
 app.use(
